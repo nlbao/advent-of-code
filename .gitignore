@@ -1,5 +1,18 @@
+#### Ignore binaries without extensions
+# Ignore all
+*
+# Unignore all with extensions
+!*.*
+# Unignore all dirs
+!*/
+####
+
 # Others
-.DS_Store
+*.DS_Store
+
+# input & output files
+*.in
+*.out
 
 # Prerequisites
 *.d
