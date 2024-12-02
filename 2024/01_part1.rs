@@ -1,4 +1,4 @@
-//  rustc 1.rs && ./1
+//  rustc 01_part1.rs && ./01_part1
 
 use std::fs::File;
 use std::io::prelude::*;
