@@ -15,6 +15,7 @@ const DY: &'static [i32] = &[-1, 1, 0, 0];
 const NULL_BUTTON: char = '#';
 const NULL_STATE: (usize, char, char, char) = (usize::MAX, '#', '#', '#');
 
+// TODO: also consider different path options from NUM_KEYPAD.
 const NUM_KEYPAD: &'static [&'static [char]] = &[
     &['7', '8', '9'],
     &['4', '5', '6'],
@@ -26,6 +27,39 @@ const DIR_KEYPAD: &'static [&'static [char]] = &[
     &['#', '^', 'A'], //
     &['<', 'v', '>'],
 ];
+
+// dir buttons needed to move the pointer from cell s to cell t
+// many options.
+fn get_dir_buttons_to_cell(s: &char, t: &char) -> Vec<String> {
+    let ans = match (s, t) {
+        ('^', 'A') => Vec::from([">"]),
+        ('^', 'v') => Vec::from(["v"]),
+        ('^', '<') => Vec::from(["v<"]),
+        ('^', '>') => Vec::from(["v>", ">v"]),
+        //
+        ('A', '^') => Vec::from(["<"]),
+        ('A', '>') => Vec::from(["v"]),
+        ('A', 'v') => Vec::from(["v<", "<v"]),
+        ('A', '<') => Vec::from(["v<<", "<v<"]),
+        //
+        ('>', 'A') => Vec::from(["^"]),
+        ('>', 'v') => Vec::from(["<"]),
+        ('>', '^') => Vec::from(["^<", "<^"]),
+        ('>', '<') => Vec::from(["<<"]),
+        //
+        ('v', '<') => Vec::from(["<"]),
+        ('v', '>') => Vec::from([">"]),
+        ('v', '^') => Vec::from(["^"]),
+        ('v', 'A') => Vec::from(["^>", ">^"]),
+        //
+        ('<', 'v') => Vec::from([">"]),
+        ('<', '>') => Vec::from([">>"]),
+        ('<', '^') => Vec::from([">^"]),
+        ('<', 'A') => Vec::from([">^>", ">>^"]),
+        _ => unreachable!(),
+    };
+    return ans.into_iter().map(|x| x.to_string()).collect();
+}
 
 fn get_adj_dir_buttons(b: char) -> Vec<char> {
     return match b {
@@ -103,17 +137,20 @@ fn get_press_button_state(
     return NULL_STATE;
 }
 
-fn shortest_path(code: &Vec<char>) -> i64 {
+fn shortest_path(code: &Vec<char>) -> (i64, String) {
     let mut cost = HashMap::new();
     let mut heap = BTreeSet::new();
+    let mut paths = HashMap::new();
     // state = (code_i, robot1_button, robot2_button, robot3_button)
     cost.insert((0, 'A', 'A', 'A'), 0);
     heap.insert((0, (0, 'A', 'A', 'A')));
+    paths.insert((0, 'A', 'A', 'A'), "".to_string());
     while !heap.is_empty() {
         let (c, current_state) = heap.pop_first().unwrap();
         let (code_i, b1, b2, b3) = current_state;
+        let crr_path = paths.get(&current_state).unwrap().to_owned();
         if code_i >= code.len() {
-            return c;
+            return (c, crr_path);
         }
         let new_cost = c + 1;
         let mut next_states = vec![];
@@ -122,27 +159,34 @@ fn shortest_path(code: &Vec<char>) -> i64 {
         if press_button_state != NULL_STATE {
             next_states.push(press_button_state);
         }
-        // let
         // move to an adj button
         for new_b1 in get_adj_dir_buttons(b1) {
             next_states.push((code_i, new_b1, b2, b3));
         }
         // update next states
         for state in next_states {
-            if cost.contains_key(&state) {
-                let state_cost = *cost.get(&state).unwrap();
-                if new_cost < state_cost {
-                    heap.remove(&(state_cost, state));
-                }
+            let state_cost = *cost.get(&state).unwrap_or(&i64::MAX);
+            if new_cost >= state_cost {
+                continue;
+            }
+            if state_cost < i64::MAX {
+                heap.remove(&(state_cost, state));
             }
             heap.insert((new_cost, state));
             cost.insert(state, new_cost);
+            if state.1 == current_state.1 {
+                // the first button was pressed.
+                let new_path = format!("{}{}", crr_path.clone(), state.1);
+                paths.insert(state, new_path);
+            } else {
+                paths.insert(state, crr_path.to_owned());
+            }
         }
     }
     unreachable!();
 }
 
-fn solve(code: &Vec<char>) -> i64 {
+fn numeric_val(code: &Vec<char>) -> i64 {
     let mut val = 0;
     for c in code {
         let x = *c as i64;
@@ -150,20 +194,77 @@ fn solve(code: &Vec<char>) -> i64 {
             val = val * 10 + (x - '0' as i64);
         }
     }
-    let dist = shortest_path(code);
-    println!("code = {:?}   val = {}, shortest_path = {}", code, val, dist);
-    return val * dist;
+    return val;
+}
+
+// assumption: always starts at "A" (not included in s), and ends at "A" (included)
+fn part2(level: usize, s: &String, cache: &mut HashMap<(usize, String), i64>) -> i64 {
+    println!("part2: level = {}, s = {}", level, s);
+    let n = s.len();
+    if level == 0 || n == 1 {
+        return n as i64;
+    }
+    let state = (level, s.clone());
+    match cache.get(&state) {
+        Some(v) => return *v,
+        None => {} // fall through
+    }
+    let mut pre: char = 'A';
+    let mut ans = 0;
+    let a_str = "A".to_string();
+    for c in s.chars() {
+        let mut next_level_s_options = vec![];
+        if c != pre {
+            let button_options = get_dir_buttons_to_cell(&pre, &c);
+            for b in button_options {
+                next_level_s_options.push(b + &a_str);
+            }
+            pre = c;
+        } else {
+            next_level_s_options.push(a_str.clone());
+        }
+        ans += next_level_s_options
+            .iter()
+            .map(|next_level_s| part2(level - 1, &next_level_s, cache))
+            .min() // choose the shortest option
+            .unwrap();
+    }
+    cache.insert(state, ans);
+    return ans;
 }
 
 fn main() {
+    assert!(next_dir_button('A', '>') == NULL_BUTTON);
+    assert!(next_dir_button('A', '^') == NULL_BUTTON);
+
     let mut ans_part1 = 0;
+    let mut ans_part2 = 0;
 
     let file = File::open(FILE_PATH).expect("Error opening file");
     let reader = BufReader::new(file);
     for line in reader.lines() {
         let l = line.unwrap().to_owned();
-        let code = l.chars().collect();
-        ans_part1 += solve(&code);
+        let code: Vec<char> = l.chars().collect();
+        let val = numeric_val(&code);
+        let (dist, path) = shortest_path(&code);
+        let a2_level1 = part2(1, &path, &mut HashMap::new());
+        // let a2 = part2(24, &path, &mut cache);
+        let a2 = part2(24, &path, &mut HashMap::new());
+        println!(
+            "code = {:?}   val = {}, shortest_path = {}, path = {},     a2_level1 = {},     a2 = {}",
+            code, val, dist, path, a2_level1, a2,
+        );
+        assert!(a2_level1 == dist);
+        ans_part1 += val * dist;
+        ans_part2 += val * a2;
     }
     println!("ans_part1 = {}\n", ans_part1);
+    println!("ans_part2 = {}\n", ans_part2);
+    // no min()
+    // 2429186610257336 is too high (level = 24)
+    // 894450181544366 is too high (level = 23)
+
+    // with min()
+    // 337263686512582 is too high (level = 24)
+    // 135576559312082 is not the right answer (level = 23)
 }
